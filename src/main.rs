@@ -491,7 +491,9 @@ fn close_clients_waiting_for_it(router: &mut Router) {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::builder()
+        .format_timestamp_millis()
+        .init();
 
     // We want to log panic with a logger.
     panic::set_hook(Box::new(|panic_info| {

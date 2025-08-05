@@ -5,7 +5,8 @@ edition = "2024"
 
 [dependencies]
 log = "0.4.27"
-env_logger = { version =  "0.11.8", default-features = false }
+# `humantime` is necessary for timestamps in logs.
+env_logger = { version =  "0.11.8", default-features = false, features = ["humantime"] }
 mio = { version = "1.0.4", default-features = false, features = [
     "log",
     "net",
