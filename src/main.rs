@@ -308,6 +308,8 @@ fn enqueue_pings(router: &mut Router) {
         return
     }
 
+    info!("Enqueuing pings");
+
     let msg = SharedPendingMessage {
         header: MsgHeader {
             enqueued_by_router: now,
@@ -561,6 +563,14 @@ fn main() {
                         Err(e) =>
                             warn!("Accepting on server socket failed: {}", e),
                     }
+                    // `mio` is unfortunately edge triggered which is more complex.
+                    // The original code used `epoll` in level triggered mode.
+                    // We circumvent this problem by reregistering a socket each time
+                    // we process an event on that socket.
+                    // Thanks to that we can code as if it was level triggered.
+                    router.poll.registry()
+                        .reregister(&mut router.server_socket, ROUTER_TOKEN, mio::Interest::READABLE)
+                        .expect("Cannot reregister router socket in poll for reading");
                 } else {
                     error!("Unknown event on server socket {:?}", event)
                 }
@@ -593,6 +603,27 @@ fn main() {
                     mark_client_for_closing(
                         client, &router.service_id_to_name, &mut router.clients_waiting_for_close,
                         format!("Unknown event on client socket {:?}", event).as_str());
+                }
+
+                // `mio` is unfortunately edge triggered which is more complex.
+                // The original code used `epoll` in level triggered mode.
+                // We circumvent this problem by reregistering a socket each time
+                // we process an event on that socket.
+                // Thanks to that we can code as if it was level triggered.
+                {
+                    // We have to reborrow `client` because it could have been invalidated by `process_msg`.
+                    let client = router.clients
+                        .get_mut(&client_instance_id)
+                        .expect("Event for unknown client");
+                    if client.pending_messages.len() == 0 {
+                        router.poll.registry()
+                            .reregister(&mut client.socket, client_instance_id.to_mio_token(), mio::Interest::READABLE)
+                            .expect("Cannot reregister client socket in poll for reading");
+                    } else {
+                        router.poll.registry()
+                            .reregister(&mut client.socket, client.instance_id.to_mio_token(), mio::Interest::READABLE | mio::Interest::WRITABLE)
+                            .expect("Cannot reregister client socket in poll for reading and writing");
+                    }
                 }
             }
         }
