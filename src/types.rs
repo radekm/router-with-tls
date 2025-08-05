@@ -218,7 +218,7 @@ pub struct MsgHeader {
     // For messages from router, `enqueued_by_router_us` contains the timestamp when router
     // enqueued the message for sending.
     // For messages from clients, it is zero except for `Pong`.
-    pub enqueued_by_router_us: UsTime,
+    pub enqueued_by_router: UsTime,
     // It can't be `MsgType` because when received it may contain values which are not valid `MsgType`.
     pub msg_type: u16,
     pub flags: u16,

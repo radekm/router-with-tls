@@ -1,6 +1,7 @@
 mod ringbuf;
 mod types;
 mod funcs;
+mod process_msg;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fs, io, panic};
@@ -13,6 +14,7 @@ use std::time::Duration;
 use log::{error, info, warn};
 use mio::net::{TcpListener, TcpStream};
 use mio::Poll;
+use crate::process_msg::process_msg;
 use crate::ringbuf::RingBuf;
 use crate::types::{AwaitedResponse, Client, ClientInstanceId, ClientState, Config, MsgHeader, MsgType, Router, ServiceId, SharedPendingMessage, UsTime, INTERVAL_BETWEEN_CHECKING_RESPONSES_US, INTERVAL_BETWEEN_PINGS_US, MAX_CLIENTS, MAX_LOGIN_MSG_BODY_SIZE, MAX_MSG_BODY_SIZE, MAX_RESPONSE_TIME_US};
 
@@ -41,7 +43,7 @@ fn add_client(router: &mut Router, client_socket: TcpStream) {
         awaited_responses: RingBuf::new(),
         received_from_header: 0,
         header: MsgHeader {
-            enqueued_by_router_us: UsTime(0),
+            enqueued_by_router: UsTime(0),
             msg_type: MsgType::Login as u16,
             flags: 0,
             body_size: 0,
@@ -308,7 +310,7 @@ fn enqueue_pings(router: &mut Router) {
 
     let msg = SharedPendingMessage {
         header: MsgHeader {
-            enqueued_by_router_us: now,
+            enqueued_by_router: now,
             msg_type: MsgType::Ping as u16,
             flags: 0,
             body_size: 0,
@@ -381,7 +383,7 @@ fn close_clients_waiting_for_it(router: &mut Router) {
             .map(|service_id| router.service_id_to_name.get(&service_id).expect("Unknown service").as_str())
             .unwrap_or_default();
         info!(
-            "Closing client (instance {:?}, state {:?}, addr {}, service: {})",
+            "Closing client (instance {:?}, state {:?}, addr '{}', service: '{}')",
             client.instance_id, client.state, client.addr, service_name);
 
         if client.state != ClientState::WaitingForClose {
@@ -399,7 +401,7 @@ fn close_clients_waiting_for_it(router: &mut Router) {
         {
             let msg = SharedPendingMessage {
                 header: MsgHeader {
-                    enqueued_by_router_us: now,
+                    enqueued_by_router: now,
                     msg_type: MsgType::RemoveClientFromService as u16,
                     flags: 0,
                     body_size: 0,
@@ -450,7 +452,7 @@ fn close_clients_waiting_for_it(router: &mut Router) {
             body.extend_from_slice(service_name.as_bytes());
             let msg = SharedPendingMessage {
                 header: MsgHeader {
-                    enqueued_by_router_us: now,
+                    enqueued_by_router: now,
                     msg_type: MsgType::DisconnectedFromService as u16,
                     flags: 0,
                     body_size: body.len() as u32,
@@ -466,9 +468,11 @@ fn close_clients_waiting_for_it(router: &mut Router) {
                     None => continue,
                     Some(connected_client) => connected_client,
                 };
-                // CONSIDER: Check allowed states. Only `Ready` and `WaitingForClose` are allowed.
+                if connected_client.state == ClientState::WaitingForClose { continue }
                 if connected_client.state != ClientState::Ready {
-                    continue
+                    panic!(
+                        "Inconsistent state: Client {:?} has invalid state {:?}",
+                        connected_client.instance_id, connected_client.state)
                 }
 
                 // Notify `connected_client` that it's no longer connected to the service.
@@ -581,7 +585,7 @@ fn main() {
                     send_pending_msg(&mut router, client_instance_id);
                 } else if event.is_readable() {
                     if receive_msg(&mut router, client_instance_id) {
-                        // TODO: Process message.
+                        process_msg(&mut router, client_instance_id);
                     }
                 } else {
                     mark_client_for_closing(
