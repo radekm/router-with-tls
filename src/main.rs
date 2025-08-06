@@ -16,7 +16,7 @@ use mio::net::{TcpListener, TcpStream};
 use mio::Poll;
 use crate::process_msg::process_msg;
 use crate::ringbuf::RingBuf;
-use crate::types::{AwaitedResponse, Client, ClientInstanceId, ClientState, Config, MsgHeader, MsgType, Router, ServiceId, SharedPendingMessage, UsTime, INTERVAL_BETWEEN_CHECKING_RESPONSES_US, INTERVAL_BETWEEN_PINGS_US, MAX_CLIENTS, MAX_LOGIN_MSG_BODY_SIZE, MAX_MSG_BODY_SIZE, MAX_RESPONSE_TIME_US};
+use crate::types::{AwaitedResponse, Client, ClientInstanceId, ClientState, Config, MsgHeader, MsgType, Router, ServiceId, SharedPendingMessage, UsTime, INTERVAL_BETWEEN_CHECKING_AND_LOGGING_CLIENTS_US, INTERVAL_BETWEEN_CHECKING_RESPONSES_US, INTERVAL_BETWEEN_PINGS_US, MAX_CLIENTS, MAX_LOGIN_MSG_BODY_SIZE, MAX_MSG_BODY_SIZE, MAX_RESPONSE_TIME_US};
 
 const ROUTER_TOKEN: mio::Token = mio::Token(0);
 
@@ -492,6 +492,77 @@ fn close_clients_waiting_for_it(router: &mut Router) {
     }
 }
 
+fn check_and_log_existing_clients(router: &mut Router) {
+    let now = UsTime::get_monotonic_time();
+
+    // Too early to check and log existing clients.
+    if now.0 < router.clients_checked_and_logged.0 + INTERVAL_BETWEEN_CHECKING_AND_LOGGING_CLIENTS_US {
+        return
+    }
+
+    for (client_instance_id, client) in &router.clients {
+        if *client_instance_id != client.instance_id {
+            panic!(
+                "Inconsistent state: Client key {:?} is not it's instance id {:?}",
+                client_instance_id, client.instance_id)
+        }
+
+        for notified_service in &client.notified_services {
+            match router.clients.get(notified_service) {
+                None => panic!(
+                    "Inconsistent state: Client {:?} contains notified service {:?} which doesn't exist",
+                    client.instance_id, notified_service),
+                Some(notified_service) => if notified_service.service_id.is_none() {
+                    panic!(
+                        "Inconsistent state: Client {:?} contains notified service {:?} which is not service",
+                        client.instance_id, notified_service.instance_id)
+                }
+            }
+        }
+
+        if client.received_from_header > size_of::<MsgHeader>() {
+            panic!(
+                "Inconsistent state: Client {:?} has received_from_header bigger {:?} than header size",
+                client.instance_id, client.received_from_header)
+        }
+        if client.received_from_body > client.body.len() {
+            panic!(
+                "Inconsistent state: Client {:?} has received_from_body bigger {:?} than body size {:?}",
+                client.instance_id, client.received_from_body, client.body.len())
+        }
+
+        if client.service_id.is_none() && !client.notified_clients.is_empty() {
+            panic!(
+                "Inconsistent state: Client {:?} which is not service has notified_clients {:?}",
+                client.instance_id, client.notified_clients)
+        }
+        for notified_client in &client.notified_clients {
+            match router.clients.get(notified_client) {
+                None => panic!(
+                    "Inconsistent state: Service {:?} contains notified client {:?} which doesn't exist",
+                    client.instance_id, notified_client),
+                Some(notified_client) => if !notified_client.notified_services.contains(&client.instance_id) {
+                    panic!(
+                        "Inconsistent state: Service {:?} contains notified client {:?} where service is not in notified_services",
+                        client.instance_id, notified_client.instance_id)
+                }
+            }
+        }
+    }
+
+    info!("=== {} EXISTING CLIENTS ===", router.clients.len());
+    for client in router.clients.values() {
+        info!(
+            "Existing client {:?}, state {:?}, addr '{}', subscribed services {}, notified services {}, service id {:?}, notified clients {}",
+            client.instance_id, client.state, client.addr,
+            client.subscribed_services.len(), client.notified_services.len(),
+            client.service_id, client.notified_clients.len(),
+        )
+    }
+
+    router.clients_checked_and_logged = now;
+}
+
 fn main() {
     env_logger::builder()
         .format_timestamp_millis()
@@ -532,6 +603,7 @@ fn main() {
         total_clients_connected: 0,
         pings_sent: UsTime(0),
         responses_checked: UsTime(0),
+        clients_checked_and_logged: UsTime(0),
         clients_waiting_for_close: BTreeSet::new(),
     };
 
@@ -631,5 +703,6 @@ fn main() {
         enqueue_pings(&mut router);
         check_awaited_responses(&mut router);
         close_clients_waiting_for_it(&mut router);
+        check_and_log_existing_clients(&mut router);
     }
 }
