@@ -359,7 +359,7 @@ fn process_msg_login(
         if other_client.state != ClientState::Ready { continue }
         if !other_client.subscribed_services.contains(&service_id) { continue }
 
-        let enqueued = !enqueue_msg_and_response_add_client_to_service(
+        let enqueued = enqueue_msg_and_response_add_client_to_service(
             &router_without_client.poll,
             client,
             other_client,
@@ -368,7 +368,7 @@ fn process_msg_login(
         // Both queues `pending_messages` and `awaited_responses` should have enough space
         // because the service has just started.
         if !enqueued {
-            panic!("Router has inconsistent state: Queues don't have enough space after login");
+            panic!("Inconsistent state: Queues don't have enough space after login");
         }
     }
 
