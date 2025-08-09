@@ -152,6 +152,7 @@ fn send_pending_msg(router: &mut Router, client_instance_id: ClientInstanceId) {
             let p = p as *const u8;
             let slice = slice_from_raw_parts(p, size_of::<MsgHeader>());
             let slice = unsafe { &*slice };
+            let slice = &slice[client.sent_from_message..];
             let result = client.socket.write(slice);
             let n = handle_read_write_result(
                 result, client, &router.service_id_to_name, &mut router.clients_waiting_for_close);
