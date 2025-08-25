@@ -10,7 +10,7 @@ use crate::ringbuf::RingBuf;
 // Login message is smaller than other messages
 // to prevent exhausting memory by clients that aren't logged in.
 pub const MAX_LOGIN_MSG_BODY_SIZE: usize = 512;
-pub const MAX_MSG_BODY_SIZE: usize = 10_000_000;
+pub const MAX_MSG_BODY_SIZE: usize = 20_000_000;
 // Maximum number of services a single client can subscribe to.
 pub const MAX_SUBSCRIPTIONS: usize = 32;
 pub const MAX_SERVICE_NAME_LEN: usize = 64;
