@@ -31,7 +31,7 @@ pub const MAX_AWAITED_RESPONSES: usize = MAX_CLIENTS;  // Must be at least `MAX_
 pub const INTERVAL_BETWEEN_PINGS_US: u64 = 5_000_000;
 pub const INTERVAL_BETWEEN_CHECKING_RESPONSES_US: u64 = 5_000_000;
 pub const INTERVAL_BETWEEN_CHECKING_AND_LOGGING_CLIENTS_US: u64 = 15_000_000;
-pub const MAX_RESPONSE_TIME_US: u64 = 10_000_000;
+pub const MAX_RESPONSE_TIME_US: u64 = 20_000_000;
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 pub enum ClientState {
